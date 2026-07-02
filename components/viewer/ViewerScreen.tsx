@@ -25,6 +25,7 @@ import { loadStudyFromPath } from "@/lib/cornerstone/studyLoader";
 import Toolbar from "@/components/viewer/Toolbar";
 import CineControls from "@/components/viewer/CineControls";
 import StatusBar from "@/components/viewer/StatusBar";
+import FloatingSlider from "@/components/viewer/FloatingSlider";
 
 const ENGINE_ID = "main-engine";
 const TOOL_GROUP_STACK = "tg-stack";
@@ -58,6 +59,7 @@ export default function ViewerScreen() {
   const path = searchParams.get("path") || "";
 
   const [viewMode, setViewMode] = useState<ViewMode>("stack");
+  const [activeTool, setActiveTool] = useState<string>("windowing");
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(5);
   const [currentSlice, setCurrentSlice] = useState(1);
@@ -68,6 +70,13 @@ export default function ViewerScreen() {
   const [error, setError] = useState("");
   const [logs, setLogs] = useState<string[]>([]);
   const [showDebug, setShowDebug] = useState(false);
+  const [showWL, setShowWL] = useState(false);
+  const [showZoom, setShowZoom] = useState(false);
+  const [showCrosshair, setShowCrosshair] = useState(false);
+  const [wlWidth, setWlWidth] = useState(400);
+  const [wlLevel, setWlLevel] = useState(40);
+  const [zoomValue, setZoomValue] = useState(1);
+  const [crossSlice, setCrossSlice] = useState(0);
 
   // Viewport refs
   const stackRef = useRef<HTMLDivElement>(null);
@@ -77,6 +86,8 @@ export default function ViewerScreen() {
 
   const cancelRef = useRef(false);
   const engineRef = useRef<RenderingEngine | null>(null);
+  const tgStackRef = useRef<any>(null);
+  const tgMprRef = useRef<any>(null);
   const imageIdsRef = useRef<string[]>([]);
   const cineTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const volumeLoadedRef = useRef(false);
@@ -166,6 +177,7 @@ export default function ViewerScreen() {
         // Tool group para stack
         try { ToolGroupManager.destroyToolGroup(TOOL_GROUP_STACK); } catch (_) {}
         const tgStack = ToolGroupManager.createToolGroup(TOOL_GROUP_STACK)!;
+        tgStackRef.current = tgStack;
         tgStack.addTool(WindowLevelTool.toolName);
         tgStack.addTool(ZoomTool.toolName);
         tgStack.addTool(PanTool.toolName);
@@ -180,6 +192,7 @@ export default function ViewerScreen() {
         await viewport.setStack(imageIds, 0);
         if (cancelRef.current) { engine.destroy(); return; }
 
+        viewport.resetCamera();
         viewport.render();
         setLoading(false);
         addLog(`✅ Stack listo — ${imageIds.length} imágenes`);
@@ -249,6 +262,7 @@ export default function ViewerScreen() {
 
       // Create MPR tool group
       const tgMpr = ToolGroupManager.createToolGroup(TOOL_GROUP_MPR)!;
+      tgMprRef.current = tgMpr;
       tgMpr.addTool(WindowLevelTool.toolName);
       tgMpr.addTool(ZoomTool.toolName);
       tgMpr.addTool(PanTool.toolName);
@@ -271,7 +285,11 @@ export default function ViewerScreen() {
         [VIEWPORT_AXIAL, VIEWPORT_SAGITTAL, VIEWPORT_CORONAL]
       );
 
-      engine.renderViewports([VIEWPORT_AXIAL, VIEWPORT_SAGITTAL, VIEWPORT_CORONAL]);
+      [VIEWPORT_AXIAL, VIEWPORT_SAGITTAL, VIEWPORT_CORONAL].forEach((id) => {
+        const vp = engine.getViewport(id) as any;
+        vp?.resetCamera();
+        vp?.render();
+      });
       volumeLoadedRef.current = true;
       addLog("✅ MPR activo — Axial / Sagital / Coronal");
     } catch (err: any) {
@@ -302,6 +320,7 @@ export default function ViewerScreen() {
         // Recreate stack tool group
         try { ToolGroupManager.destroyToolGroup(TOOL_GROUP_STACK); } catch (_) {}
         const tgStack = ToolGroupManager.createToolGroup(TOOL_GROUP_STACK)!;
+        tgStackRef.current = tgStack;
         tgStack.addTool(WindowLevelTool.toolName);
         tgStack.addTool(ZoomTool.toolName);
         tgStack.addTool(PanTool.toolName);
@@ -317,10 +336,10 @@ export default function ViewerScreen() {
   }, [addLog]);
 
   const handleToggleLayout = useCallback(() => {
+    setActiveTool("windowing");
     setViewMode((prev) => {
       const next = prev === "stack" ? "mpr" : "stack";
       if (next === "mpr") {
-        // Defer until state & DOM update
         setTimeout(() => activateMPR(), 50);
       } else {
         activateStack();
@@ -351,18 +370,18 @@ export default function ViewerScreen() {
   }, [playing, speed, viewMode]);
 
   const handleWindowing = useCallback(() => {
-    const tgId = viewMode === "mpr" ? TOOL_GROUP_MPR : TOOL_GROUP_STACK;
-    ToolGroupManager.getToolGroup(tgId)?.setToolActive(WindowLevelTool.toolName, {
-      bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
-    });
-  }, [viewMode]);
+    setShowWL((v) => !v);
+    setShowZoom(false);
+    setShowCrosshair(false);
+    setActiveTool("windowing");
+  }, []);
 
   const handleZoom = useCallback(() => {
-    const tgId = viewMode === "mpr" ? TOOL_GROUP_MPR : TOOL_GROUP_STACK;
-    ToolGroupManager.getToolGroup(tgId)?.setToolActive(ZoomTool.toolName, {
-      bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
-    });
-  }, [viewMode]);
+    setShowZoom((v) => !v);
+    setShowWL(false);
+    setShowCrosshair(false);
+    setActiveTool("zoom");
+  }, []);
 
   const handleReset = useCallback(() => {
     const engine = engineRef.current;
@@ -387,11 +406,90 @@ export default function ViewerScreen() {
   }, [viewMode]);
 
   const handleToggleCrossairs = useCallback(() => {
-    const tg = ToolGroupManager.getToolGroup(TOOL_GROUP_MPR);
-    if (tg) tg.setToolActive(CrosshairsTool.toolName, {
-      bindings: [{ mouseButton: ToolEnums.MouseBindings.Primary }],
-    });
+    setShowCrosshair((v) => !v);
+    setShowWL(false);
+    setShowZoom(false);
+    setActiveTool("crosshairs");
   }, []);
+
+  // Sync W/L slider from viewport
+  useEffect(() => {
+    if (!showWL) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const vpId = viewMode === "mpr" ? VIEWPORT_AXIAL : VIEWPORT_STACK;
+    const vp = engine.getViewport(vpId) as any;
+    if (!vp) return;
+    const props = vp.getProperties();
+    if (props?.voiRange) {
+      const { upper, lower } = props.voiRange;
+      setWlWidth(Math.round(upper - lower));
+      setWlLevel(Math.round((upper + lower) / 2));
+    }
+  }, [showWL, viewMode]);
+
+  // Sync zoom slider from viewport
+  useEffect(() => {
+    if (!showZoom) return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const vpId = viewMode === "mpr" ? VIEWPORT_AXIAL : VIEWPORT_STACK;
+    const vp = engine.getViewport(vpId) as any;
+    if (!vp) return;
+    const cam = vp.getCamera();
+    if (cam?.parallelScale) {
+      setZoomValue(Math.round(cam.parallelScale * 10) / 10);
+    }
+  }, [showZoom, viewMode]);
+
+  // Sync crosshair slice from viewport
+  useEffect(() => {
+    if (!showCrosshair || viewMode !== "mpr") return;
+    const engine = engineRef.current;
+    if (!engine) return;
+    const vp = engine.getViewport(VIEWPORT_AXIAL) as any;
+    if (!vp) return;
+    const idx = vp.getSliceIndex?.();
+    if (idx !== undefined) setCrossSlice(idx);
+  }, [showCrosshair, viewMode]);
+
+  // Apply W/L to viewport
+  const applyWL = useCallback((width: number, level: number) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const vpId = viewMode === "mpr" ? VIEWPORT_AXIAL : VIEWPORT_STACK;
+    const vp = engine.getViewport(vpId) as any;
+    if (!vp) return;
+    const half = width / 2;
+    vp.setProperties({ voiRange: { upper: level + half, lower: level - half } });
+    vp.render();
+  }, [viewMode]);
+
+  // Apply zoom to viewport
+  const applyZoom = useCallback((val: number) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    const vpId = viewMode === "mpr" ? VIEWPORT_AXIAL : VIEWPORT_STACK;
+    const vp = engine.getViewport(vpId) as any;
+    if (!vp) return;
+    vp.setCamera({ parallelScale: val });
+    vp.render();
+  }, [viewMode]);
+
+  // Apply slice from crosshair slider
+  const applyCrossSlice = useCallback((idx: number) => {
+    const engine = engineRef.current;
+    if (!engine) return;
+    if (viewMode === "mpr") {
+      const vp = engine.getViewport(VIEWPORT_AXIAL) as any;
+      if (!vp) return;
+      vp.setSliceIndex?.(idx);
+    } else {
+      const vp = engine.getViewport(VIEWPORT_STACK) as any;
+      if (!vp) return;
+      vp.setImageIdIndex(idx);
+    }
+  }, [viewMode]);
 
   // ────────────────────────────────────────────
   // Render
@@ -434,14 +532,48 @@ export default function ViewerScreen() {
       )}
 
       <Toolbar
+        activeTool={activeTool}
         cineActive={playing}
         layout={viewMode === "mpr" ? "mpr" : "single"}
         onToggleCine={() => setPlaying((p) => !p)}
         onToggleLayout={handleToggleLayout}
         onWindowing={handleWindowing}
         onZoom={handleZoom}
+        onCrosshair={handleToggleCrossairs}
         onReset={handleReset}
       />
+
+      {/* Floating sliders */}
+      <div className="absolute top-14 left-56 z-40 space-y-2">
+        {showWL && (
+          <>
+            <FloatingSlider label="W/L Width" value={wlWidth} min={1} max={4000} step={1}
+              formatValue={(v) => `${v}`}
+              onChange={(v) => { setWlWidth(v); applyWL(v, wlLevel); }}
+              onClose={() => setShowWL(false)}
+            />
+            <FloatingSlider label="W/L Level" value={wlLevel} min={-1000} max={2000} step={1}
+              formatValue={(v) => `${v}`}
+              onChange={(v) => { setWlLevel(v); applyWL(wlWidth, v); }}
+              onClose={() => setShowWL(false)}
+            />
+          </>
+        )}
+        {showZoom && (
+          <FloatingSlider label="Zoom" value={zoomValue} min={0.1} max={10} step={0.1}
+            formatValue={(v) => `${v.toFixed(1)}x`}
+            onChange={(v) => { setZoomValue(v); applyZoom(v); }}
+            onClose={() => setShowZoom(false)}
+          />
+        )}
+        {showCrosshair && (
+          <FloatingSlider label="Corte" value={crossSlice} min={0} max={Math.max(totalSlices - 1, 1)} step={1}
+            formatValue={(v) => `#${v + 1}`}
+            onChange={(v) => { setCrossSlice(v); applyCrossSlice(v); }}
+            onClose={() => setShowCrosshair(false)}
+          />
+        )}
+      </div>
 
       <div className="flex-1 flex overflow-hidden">
         {/* Series panel */}

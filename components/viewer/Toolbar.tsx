@@ -3,22 +3,26 @@
 import { IconSun, IconZoomIn, IconLayout, IconCrosshair, IconReset, IconImage } from "@/components/ui/icons";
 
 interface ToolbarProps {
+  activeTool: string;
   cineActive: boolean;
   layout: "single" | "mpr";
   onToggleCine: () => void;
   onToggleLayout: () => void;
   onWindowing: () => void;
   onZoom: () => void;
+  onCrosshair?: () => void;
   onReset: () => void;
 }
 
 export default function Toolbar({
+  activeTool,
   cineActive,
   layout,
   onToggleCine,
   onToggleLayout,
   onWindowing,
   onZoom,
+  onCrosshair,
   onReset,
 }: ToolbarProps) {
   const tools = [
@@ -37,11 +41,11 @@ export default function Toolbar({
       action: onZoom,
     },
     {
-      id: "crosshair",
+      id: "crosshairs",
       icon: IconCrosshair,
       label: "Crosshair",
       shortcut: "C",
-      action: () => {},
+      action: onCrosshair ?? (() => {}),
     },
     {
       id: "layout",
@@ -73,7 +77,11 @@ export default function Toolbar({
         <button
           key={tool.id}
           onClick={tool.action}
-          className="flex items-center gap-1.5 px-3 h-8 rounded-lg hover:bg-surface-2 text-muted hover:text-foreground transition-colors text-xs relative group"
+          className={`flex items-center gap-1.5 px-3 h-8 rounded-lg transition-colors text-xs relative group ${
+            tool.id !== "layout" && tool.id !== "reset" && activeTool === tool.id
+              ? "bg-accent/20 text-accent"
+              : "hover:bg-surface-2 text-muted hover:text-foreground"
+          }`}
         >
           <tool.icon className="w-4 h-4" />
           <span className="hidden sm:inline">{tool.label}</span>

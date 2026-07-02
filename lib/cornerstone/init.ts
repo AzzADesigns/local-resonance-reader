@@ -20,6 +20,7 @@ export async function initCornerstone(): Promise<void> {
   initPromise = (async () => {
     // Pre-import jpeg-lossless-decoder-js so it's cached before decoding starts
     try {
+      // @ts-ignore
       await import("jpeg-lossless-decoder-js");
       console.log("[INIT] jpeg-lossless-decoder-js pre-loaded OK");
     } catch (e) {
@@ -32,10 +33,11 @@ export async function initCornerstone(): Promise<void> {
     });
 
     // Link Cornerstone core to dicom-image-loader
-    if (!dicomImageLoader.external) {
-      (dicomImageLoader as any).external = {};
+    const loader = dicomImageLoader as any;
+    if (!loader.external) {
+      loader.external = {};
     }
-    dicomImageLoader.external.cornerstone = { metaData };
+    loader.external.cornerstone = { metaData };
 
     await coreInit();
     await toolsInit();
@@ -52,18 +54,18 @@ export async function initCornerstone(): Promise<void> {
 
     // Register the Cornerstone streaming volume loader (required for MPR)
     volumeLoader.registerUnknownVolumeLoader(
-      cornerstoneStreamingImageVolumeLoader
+      cornerstoneStreamingImageVolumeLoader as any
     );
     volumeLoader.registerVolumeLoader(
       "cornerstoneStreamingImageVolume",
-      cornerstoneStreamingImageVolumeLoader
+      cornerstoneStreamingImageVolumeLoader as any
     );
 
     // Register the metadata provider from dicom-image-loader
     metaData.addProvider(
-      (type: string, imageId: string) => {
+      ((type: string, imageId: string) => {
         try {
-          const provider = dicomImageLoader.wadouri.metaData.metaDataProvider;
+          const provider = (dicomImageLoader as any).wadouri.metaData.metaDataProvider;
           if (provider) {
             const data = provider(type, imageId);
             if (data !== undefined) return data;
@@ -71,11 +73,11 @@ export async function initCornerstone(): Promise<void> {
         } catch (_) {}
 
         try {
-          return dicomImageLoader.wadors.metaDataManager.get(type, imageId);
+          return (dicomImageLoader as any).wadors.metaDataManager.get(type, imageId);
         } catch (_) {
           return undefined;
         }
-      },
+      }) as any,
       9999
     );
 

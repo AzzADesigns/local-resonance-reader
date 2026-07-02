@@ -22,6 +22,7 @@ import {
 import { Enums as ToolEnums } from "@cornerstonejs/tools";
 import { initCornerstone } from "@/lib/cornerstone/init";
 import { loadStudyFromPath } from "@/lib/cornerstone/studyLoader";
+import { getStudyData } from "@/lib/cornerstone/studyStore";
 import Toolbar from "@/components/viewer/Toolbar";
 import CineControls from "@/components/viewer/CineControls";
 import StatusBar from "@/components/viewer/StatusBar";
@@ -123,7 +124,8 @@ export default function ViewerScreen() {
   // ────────────────────────────────────────────
   useEffect(() => {
     const dirPath = searchParams.get("path") || "";
-    if (!dirPath) return;
+    const isUpload = searchParams.get("upload") === "true";
+    if (!dirPath && !isUpload) return;
 
     cancelRef.current = false;
     setLoading(true);
@@ -158,21 +160,36 @@ export default function ViewerScreen() {
           defaultOptions: { background: [0, 0, 0] as [number, number, number] },
         }]);
 
-        addLog("Listando archivos DICOM...");
-        const result = await loadStudyFromPath(dirPath);
-        if (cancelRef.current) { engine.destroy(); return; }
-        if (result.count === 0) throw new Error("No se encontraron archivos .dcm");
+        let imageIds: string[];
+        if (isUpload) {
+          addLog("Cargando estudio desde upload...");
+          const study = getStudyData();
+          if (!study || study.imageIds.length === 0) throw new Error("No hay datos de estudio cargados");
+          imageIds = study.imageIds;
+          setTotalSlices(study.numImages);
+          setStatusInfo({
+            patient: study.patientName,
+            study: study.studyDescription,
+            modality: "DCM",
+            images: study.numImages,
+          });
+        } else {
+          addLog("Listando archivos DICOM...");
+          const result = await loadStudyFromPath(dirPath);
+          if (cancelRef.current) { engine.destroy(); return; }
+          if (result.count === 0) throw new Error("No se encontraron archivos .dcm");
+          imageIds = result.imageIds;
+          setTotalSlices(imageIds.length);
+          setStatusInfo({
+            patient: dirPath.split(/[/\\]/).pop() || "Estudio",
+            study: dirPath.split(/[/\\]/).pop() || "",
+            modality: "DCM",
+            images: imageIds.length,
+          });
+        }
 
-        const { imageIds } = result;
         imageIdsRef.current = imageIds;
         addLog(`${imageIds.length} archivos encontrados`);
-        setTotalSlices(imageIds.length);
-        setStatusInfo({
-          patient: dirPath.split(/[/\\]/).pop() || "Estudio",
-          study: dirPath.split(/[/\\]/).pop() || "",
-          modality: "DCM",
-          images: imageIds.length,
-        });
 
         // Tool group para stack
         try { ToolGroupManager.destroyToolGroup(TOOL_GROUP_STACK); } catch (_) {}

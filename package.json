@@ -3,12 +3,16 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
-    "build": "next build",
-    "start": "next start",
+    "dev": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start --webpack",
     "lint": "eslint"
   },
   "dependencies": {
+    "@cornerstonejs/core": "^5.1.4",
+    "@cornerstonejs/dicom-image-loader": "^5.1.4",
+    "@cornerstonejs/tools": "^5.1.4",
+    "dicom-parser": "^1.8.21",
     "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4"

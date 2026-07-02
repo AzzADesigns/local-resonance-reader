@@ -1,6 +1,6 @@
 # DICOM Web Viewer — MVP
 
-A personal DICOM medical image viewer built with Next.js and Cornerstone3D. Load studies from a local folder, navigate slices, adjust window/level, zoom, and pan — all in your browser.
+A personal DICOM medical image viewer built with Next.js and Cornerstone3D. Load studies via file upload or local folder, navigate slices, adjust window/level, zoom, pan, and view MPR reconstructions — all in your browser.
 
 > **Status**: MVP (Minimum Viable Product). Core viewing works; the 3D volume viewport is not functional yet.
 
@@ -9,56 +9,69 @@ A personal DICOM medical image viewer built with Next.js and Cornerstone3D. Load
 ## Features
 
 - **Axial, Sagittal, Coronal MPR** — Three orthogonal planes rendered from a DICOM volume using Cornerstone3D's `volumeLoader`
-- **Window / Level** — Adjust contrast and brightness with left-click drag
-- **Zoom & Pan** — Zoom with mouse wheel, pan with right-click drag
-- **Stack Scrolling** — Scroll through slices with the mouse wheel on secondary click
+- **File Upload** — Select `.dcm` files directly from your PC. Works on Vercel (100% client-side, no backend needed)
+- **Local Filesystem** — Enter a folder path to load files from the same machine (development only)
+- **Window / Level** — Adjust contrast and brightness with left-click drag, or use the floating slider panel
+- **Zoom & Pan** — Zoom with mouse wheel, pan with right-click drag, or use the floating zoom slider
+- **Floating Sliders** — Each toolbar button toggles a floating control panel:
+  - **W/L**: two sliders for window width and level
+  - **Zoom**: one slider for zoom level
+  - **Crosshair**: one slider for slice position (stack) / crosshair center (MPR)
+- **Stack Scrolling** — Scroll through slices with right-click drag
+- **Slice Navigation** — Crosshair slider lets you jump to any slice instantly
 - **Cine Playback** — Auto-cycle through slices at a configurable speed (1–10 fps)
-- **Dropbox Path Input** — Enter a local folder path containing `.dcm` files to load a study
 - **Recent Studies** — Last 3 studies persisted in `localStorage` for quick access
 - **Dark Theme** — Full dark UI (`#000` background) optimized for medical reading
+- **Deployable on Vercel** — Upload DICOM files via the browser; no server-side filesystem required
 
 ### Known Limitations (MVP)
 
 - **3D Volume viewport does not render** — The fourth viewport ("Volumen 3D") in MPR mode is a placeholder; the volume API integration is incomplete
 - **Dropbox integration is not implemented** — The path input currently reads from the local filesystem via an API route; Dropbox OAuth/PKCE flow is a future addition
-- **Local filesystem only** — The server reads `.dcm` files from the same machine via `fs.readdirSync` / `readFileSync`. Not intended for remote or cloud deployment without modification
-- **Single-series only** — One study (one folder of `.dcm` files) at a time; no multi-series or multi-study support
-- **No segmentation / annotation** — Tools are registered but only window/level and stack scroll are active by default
+- **Local filesystem mode only works in development** — `C:\...` paths cannot be read from a deployed Vercel app. Use the file upload feature instead
+- **Single-series only** — One study (one folder or set of `.dcm` files) at a time; no multi-series or multi-study support
+- **No segmentation / annotation** — Tools are registered but only window/level and zoom are active by default
+- **Large studies may be slow** — All files are loaded into browser memory as Blob URLs; very large studies (>500 MB) may cause memory pressure
 
 ---
 
 ## Architecture
 
+### Mode 1: File Upload (Vercel / Production)
+
+```
+User selects .dcm files (Dashboard)
+        │
+        ▼
+  studyStore (module-level Map)    Files read as ArrayBuffer → Blob URLs
+        │
+        ▼
+  /viewer?upload=true               Next.js App Router
+        │
+        ▼
+  Cornerstone3D                    Loads via wadouri:blob:... URLs
+        │                           100% client-side, no API calls
+        ├── setStack (stack mode)
+        └── volumeLoader + setVolumesForViewports (MPR mode)
+```
+
+### Mode 2: Local Filesystem (Development)
+
 ```
 User enters folder path (Dashboard)
         │
         ▼
-  /viewer?path=...                Next.js App Router
+  /viewer?path=...                 Next.js App Router
         │
         ▼
-  ViewerLoader                    Client component, ssr: false
+  POST /api/study                  API route lists .dcm files
+        │                           Returns imageIds (wadouri: URIs)
+        ▼
+  GET /api/study?file=...          Serves .dcm binary
         │
         ▼
-  ViewerScreen                    Initializes Cornerstone3D
-        │
-        ├── POST /api/study       API route lists .dcm files
-        │       │                 Returns 61 imageIds (wadouri: URIs)
-        │       ▼
-        ├── volumeLoader          Cornerstone loads volume from imageIds
-        │       │                 Fetches each file via GET /api/study?file=...
-        │       ▼
-        ├── setVolumesForViewports  Assigns volume to MPR viewports
-        │
-        └── ToolGroup setup       WindowLevel, Zoom, Pan, StackScroll, Crosshairs
+  Cornerstone3D                    Loads via wadouri: scheme
 ```
-
-### Data Flow
-
-1. **Dashboard** (`/`) — User types a local path (e.g. `C:\DICOM\CT_Abdomen`)
-2. **Navigation** — Dashboard navigates to `/viewer?path=<encoded-path>`
-3. **API Listing** — `POST /api/study` accepts `{ dirPath }`, scans the directory for `.dcm` files, and returns `imageIds` in `wadouri:` format
-4. **Image Serving** — Each image ID points to `GET /api/study?file=<absolute-path>`, which reads the file and serves it as `application/dicom`
-5. **Cornerstone3D** — Loads each image via the `wadouri:` scheme, decodes it in a web worker, and renders in WebGL viewports
 
 ### Frontend Stack
 
@@ -105,30 +118,42 @@ npm run build
 npm start
 ```
 
+### Deploy to Vercel
+
+```bash
+npx vercel --prod
+```
+
+The upload feature works on Vercel. The local path input will show an error (no server-side filesystem).
+
 ---
 
 ## Usage
 
 1. Open the dashboard at `http://localhost:3000`
-2. Paste the **absolute path** to a folder containing `.dcm` files (e.g. `C:\Users\...\CT_Study`)
-3. Click **"Generar Visor"**
-4. Wait for Cornerstone3D to initialize and load the volume
-5. Interact with the viewports:
+2. Choose how to load your study:
+   - **Upload**: click the dashed area and select `.dcm` files from your PC (works everywhere)
+   - **Path**: paste an absolute folder path like `C:\Users\...\CT_Study` (local only)
+3. Wait for Cornerstone3D to initialize and load the volume
+4. Interact with the viewports:
    - **Left-click drag** — Window / Level
    - **Right-click drag** — Stack Scroll (slice through the series)
    - **Mouse wheel** — Zoom
-   - **Toolbar** — Toggle cine, switch layout, reset view
+5. Use the **toolbar buttons** to toggle floating slider panels:
+   - **W/L** — two sliders for window width and level (brightness/contrast)
+   - **Zoom** — one slider for zoom level
+   - **Crosshair** — one slider for slice position
 6. Use **Cine controls** at the bottom for auto-playback at adjustable speed
 
 ### MPR Layout
 
-The default layout shows four quadrants:
+Click the layout button in the toolbar to switch to 2×2 MPR mode:
 - **Top-left**: Axial
 - **Top-right**: Sagittal
 - **Bottom-left**: Coronal
-- **Bottom-right**: 3D (not functional)
+- **Bottom-right**: (placeholder)
 
-Click the layout button in the toolbar to switch to single-viewport (stack) mode.
+Click again to return to single-viewport (stack) mode.
 
 ---
 
@@ -137,9 +162,9 @@ Click the layout button in the toolbar to switch to single-viewport (stack) mode
 ```
 my-mvp/
 ├── app/
-│   ├── api/study/route.ts      API — DICOM file listing & serving
+│   ├── api/study/route.ts      API — DICOM file listing & serving (local mode)
 │   ├── viewer/page.tsx         Viewer route (server component)
-│   ├── page.tsx                Dashboard (landing page)
+│   ├── page.tsx                Dashboard (landing page + file upload)
 │   ├── layout.tsx              Root layout + fonts
 │   └── globals.css             Tailwind theme + dark styles
 ├── components/
@@ -151,15 +176,17 @@ my-mvp/
 │   │   ├── ViewerScreen.tsx    Main viewer orchestrator
 │   │   ├── ViewerLoader.tsx    Dynamic import (ssr: false)
 │   │   ├── Toolbar.tsx         Tools toolbar
+│   │   ├── FloatingSlider.tsx  Reusable floating slider panel
 │   │   ├── CineControls.tsx    Cine playback controls
 │   │   ├── StatusBar.tsx       Bottom status bar
-│   │   └── (ViewportGrid.tsx, ViewportCanvas.tsx, SeriesPanel.tsx — legacy/unused)
+│   │   └── (legacy unused files)
 │   └── ui/
 │       └── icons.tsx           SVG icon components
 ├── lib/
 │   └── cornerstone/
 │       ├── init.ts             Cornerstone3D initialization
-│       └── studyLoader.ts      API client for loading studies
+│       ├── studyLoader.ts      API client for loading studies (local mode)
+│       └── studyStore.ts       Global store for uploaded study data
 └── public/dicom/               Placeholder for local test files
 ```
 
